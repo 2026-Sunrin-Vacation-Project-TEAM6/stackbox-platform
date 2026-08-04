@@ -7,3 +7,6 @@
 	path = frontend
 	url = https://github.com/2026-Sunrin-Vacation-Project-TEAM6/stackbox-frontend.git
 	branch = main
+[submodule "web_worker"]
+	path = web_worker
+	url = https://github.com/2026-Sunrin-Vacation-Project-TEAM6/web_worker.git
