@@ -1,0 +1,9 @@
+[submodule "backend"]
+	path = backend
+	url = https://github.com/2026-Sunrin-Vacation-Project-TEAM6/stackbox-backend.git
+	branch = main
+
+[submodule "frontend"]
+	path = frontend
+	url = https://github.com/2026-Sunrin-Vacation-Project-TEAM6/stackbox-frontend.git
+	branch = main
