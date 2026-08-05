@@ -33,6 +33,25 @@ services:
       timeout: 3s
       retries: 5
 
+  web_worker:
+    build:
+      context: ./web_worker
+      dockerfile: Dockerfile
+    container_name: stackbox-web-worker
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      REDIS_URL: redis://redis:6379
+      REDIS_STREAM_KEY: stackbox:events
+      REDIS_STREAM_GROUP: web_worker
+      REDIS_STREAM_CONSUMER: worker-1
+    depends_on:
+      redis:
+        condition: service_healthy
+
 volumes:
   stackbox_pg_data:
   stackbox_redis_data:
