@@ -45,7 +45,7 @@ services:
       HOST: 0.0.0.0
       PORT: 3000
       REDIS_URL: redis://redis:6379
-      REDIS_STREAM_KEY: stackbox:events
+      REDIS_STREAM_PREFIX: stackbox:events
       REDIS_STREAM_GROUP: web_worker
       REDIS_STREAM_CONSUMER: worker-1
     depends_on:
