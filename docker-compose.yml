@@ -4,9 +4,9 @@ services:
     container_name: stackbox-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: stackbox
-      POSTGRES_PASSWORD: stackbox
-      POSTGRES_DB: stackbox_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
     volumes:
@@ -33,10 +33,43 @@ services:
       timeout: 3s
       retries: 5
 
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: stackbox-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379
+      REDIS_STREAM_PREFIX: ${REDIS_STREAM_PREFIX}
+      CODE_RUNNER_URL: http://code_runner:3001
+      CODE_RUNNER_AUTH_TOKEN: ${CODE_RUNNER_AUTH_TOKEN}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: ${JWT_ALGORITHM}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS}
+      OPENAI_API_KEY: ${BACKEND_OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${BACKEND_OPENAI_BASE_URL}
+      OPENAI_MODEL: ${BACKEND_OPENAI_MODEL}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      GITHUB_OAUTH_REDIRECT_URI: ${GITHUB_OAUTH_REDIRECT_URI}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   web_worker:
     build:
       context: ./web_worker
       dockerfile: Dockerfile
+      target: runtime
     container_name: stackbox-web-worker
     restart: unless-stopped
     ports:
@@ -45,12 +78,31 @@ services:
       HOST: 0.0.0.0
       PORT: 3000
       REDIS_URL: redis://redis:6379
-      REDIS_STREAM_PREFIX: stackbox:events
-      REDIS_STREAM_GROUP: web_worker
-      REDIS_STREAM_CONSUMER: worker-1
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      REDIS_STREAM_PREFIX: ${REDIS_STREAM_PREFIX}
+      REDIS_STREAM_GROUP: ${REDIS_STREAM_GROUP}
+      REDIS_STREAM_CONSUMER: ${REDIS_STREAM_CONSUMER}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: ${JWT_ALGORITHM}
     depends_on:
       redis:
         condition: service_healthy
+      db:
+        condition: service_healthy
+
+  code_runner:
+    build:
+      context: ./web_worker
+      dockerfile: Dockerfile
+      target: code_runner_runtime
+    container_name: stackbox-code-runner
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      CODE_RUNNER_HOST: ${CODE_RUNNER_HOST}
+      CODE_RUNNER_PORT: ${CODE_RUNNER_PORT}
+      CODE_RUNNER_AUTH_TOKEN: ${CODE_RUNNER_AUTH_TOKEN}
 
 volumes:
   stackbox_pg_data:
