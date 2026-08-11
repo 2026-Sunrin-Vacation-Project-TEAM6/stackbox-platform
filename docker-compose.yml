@@ -17,6 +17,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - default
 
   redis:
     image: redis:7-alpine
@@ -32,6 +34,8 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    networks:
+      - default
 
   backend:
     build:
@@ -64,6 +68,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - default
+      - sandbox
 
   web_worker:
     build:
@@ -89,6 +96,8 @@ services:
         condition: service_healthy
       db:
         condition: service_healthy
+    networks:
+      - default
 
   code_runner:
     build:
@@ -97,12 +106,29 @@ services:
       target: code_runner_runtime
     container_name: stackbox-code-runner
     restart: unless-stopped
-    ports:
-      - "3001:3001"
+    # No `ports:` mapping on purpose: code_runner executes arbitrary user
+    # code and must only be reachable from other containers on the compose
+    # network (i.e. backend), never directly from the host/internet. The
+    # shared CODE_RUNNER_AUTH_TOKEN is defense-in-depth, not the only gate.
+    #
+    # Network isolation (per the Dockerfile's deployment note): code_runner
+    # only joins the internal `sandbox` network, not `default`. That means
+    # it can be reached by (and reply to) backend, but has no route to db,
+    # redis, or the public internet — containing the blast radius of the
+    # arbitrary user code it executes.
+    expose:
+      - "3001"
     environment:
       CODE_RUNNER_HOST: ${CODE_RUNNER_HOST}
       CODE_RUNNER_PORT: ${CODE_RUNNER_PORT}
       CODE_RUNNER_AUTH_TOKEN: ${CODE_RUNNER_AUTH_TOKEN}
+    networks:
+      - sandbox
+
+networks:
+  default:
+  sandbox:
+    internal: true
 
 volumes:
   stackbox_pg_data:
