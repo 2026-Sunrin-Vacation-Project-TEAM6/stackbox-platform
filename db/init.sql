@@ -419,7 +419,7 @@ CREATE INDEX idx_code_runs_block ON code_runs (block_id, created_at);
 CREATE TABLE github_accounts (
     id                     BIGSERIAL PRIMARY KEY,
     user_id                BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
-    github_user_id         VARCHAR(64) NOT NULL,
+    github_user_id         VARCHAR(64) NOT NULL UNIQUE,
     github_login           VARCHAR(255) NOT NULL,
     access_token_encrypted TEXT NOT NULL,
     connected_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
