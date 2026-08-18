@@ -1,2 +1,4 @@
 /.git/
 .omc/
+.env
+.playwright-mcp/

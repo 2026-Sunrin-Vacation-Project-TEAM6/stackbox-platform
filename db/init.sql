@@ -3,6 +3,7 @@
 CREATE TYPE stack_box_type AS ENUM ('folder', 'page', 'canvas', 'edgeless');
 CREATE TYPE workspace_role AS ENUM ('owner', 'admin', 'editor', 'viewer');
 CREATE TYPE doc_mode AS ENUM ('page', 'edgeless');
+CREATE TYPE block_type AS ENUM ('markdown', 'code');
 
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$
@@ -374,3 +375,64 @@ CREATE TABLE share_links (
 );
 
 CREATE INDEX idx_share_links_stack_box ON share_links (stack_box_id);
+
+-- Notion 스타일 문서 블록 (markdown/code) — 캔버스용 `blocks`(Figma 레이어)와 별개 테이블
+CREATE TABLE doc_blocks (
+    id           BIGSERIAL PRIMARY KEY,
+    stack_box_id BIGINT NOT NULL REFERENCES stack_boxes(id) ON DELETE CASCADE,
+    type         block_type NOT NULL DEFAULT 'markdown',
+    language     VARCHAR(32),
+    content      TEXT NOT NULL DEFAULT '',
+    sort_order   INT NOT NULL DEFAULT 0,
+    pos_x        DOUBLE PRECISION,
+    pos_y        DOUBLE PRECISION,
+    width        DOUBLE PRECISION,
+    height       DOUBLE PRECISION,
+    created_by   BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    updated_by   BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_doc_blocks_stack_box_sort ON doc_blocks (stack_box_id, sort_order);
+
+CREATE TRIGGER trg_doc_blocks_updated_at
+    BEFORE UPDATE ON doc_blocks
+    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- 코드 블록 실행 기록 (code_runner 샌드박스 결과)
+CREATE TABLE code_runs (
+    id          BIGSERIAL PRIMARY KEY,
+    block_id    BIGINT NOT NULL REFERENCES doc_blocks(id) ON DELETE CASCADE,
+    language    VARCHAR(32) NOT NULL,
+    stdout      TEXT NOT NULL DEFAULT '',
+    stderr      TEXT NOT NULL DEFAULT '',
+    exit_code   INT NOT NULL DEFAULT 0,
+    duration_ms INT NOT NULL DEFAULT 0,
+    executed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_code_runs_block ON code_runs (block_id, created_at);
+
+-- GitHub OAuth 연동 계정
+CREATE TABLE github_accounts (
+    id                     BIGSERIAL PRIMARY KEY,
+    user_id                BIGINT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    github_user_id         VARCHAR(64) NOT NULL UNIQUE,
+    github_login           VARCHAR(255) NOT NULL,
+    access_token_encrypted TEXT NOT NULL,
+    connected_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 스택박스 리액션 (재민티콘) — FigJam 스탬프용 block_reactions와 별개
+CREATE TABLE reactions (
+    id           BIGSERIAL PRIMARY KEY,
+    stack_box_id BIGINT NOT NULL REFERENCES stack_boxes(id) ON DELETE CASCADE,
+    user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    emoji_code   VARCHAR(64) NOT NULL,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (stack_box_id, user_id, emoji_code)
+);
+
+CREATE INDEX idx_reactions_stack_box ON reactions (stack_box_id);
