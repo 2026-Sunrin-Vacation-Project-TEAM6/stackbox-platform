@@ -125,6 +125,26 @@ services:
     networks:
       - sandbox
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: stackbox-frontend
+    restart: unless-stopped
+    ports:
+      - "3002:3002"
+    environment:
+      PORT: "3002"
+      # Browser-facing URLs: the browser talks to backend/web_worker via the
+      # ports mapped to the host, not their in-network service names.
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_WORKER_URL: ws://localhost:3000
+    depends_on:
+      - backend
+      - web_worker
+    networks:
+      - default
+
 networks:
   default:
   sandbox:
