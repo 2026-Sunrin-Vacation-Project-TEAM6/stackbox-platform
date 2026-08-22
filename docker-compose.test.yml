@@ -1,0 +1,151 @@
+# Standalone integration/smoke-test stack. Boots the full app with
+# self-contained test values (no .env needed) and runs the `tester`
+# service, which polls every service's health endpoint and exits
+# 0/1 accordingly.
+#
+# Usage (CI-friendly, tears the whole stack down after the run):
+#   docker compose -f docker-compose.test.yml up --build \
+#     --abort-on-container-exit --exit-code-from tester
+#   docker compose -f docker-compose.test.yml down -v
+#
+# `name:` pins a distinct project name so this never collides with
+# containers/networks/volumes from the dev docker-compose.yml.
+name: stackbox-test
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: stackbox_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d stackbox_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - default
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - default
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg2://test:test@db:5432/stackbox_test
+      REDIS_URL: redis://redis:6379
+      REDIS_STREAM_PREFIX: stackbox:test:events
+      CODE_RUNNER_URL: http://code_runner:3001
+      CODE_RUNNER_AUTH_TOKEN: test-token
+      JWT_SECRET: test-secret
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: "30"
+      REFRESH_TOKEN_EXPIRE_DAYS: "30"
+      OPENAI_API_KEY: ""
+      OPENAI_BASE_URL: ""
+      OPENAI_MODEL: gpt-4o-mini
+      GITHUB_CLIENT_ID: ""
+      GITHUB_CLIENT_SECRET: ""
+      GITHUB_OAUTH_REDIRECT_URI: http://localhost:8000/github/oauth/callback
+      TOKEN_ENCRYPTION_KEY: test-encryption-key
+      FRONTEND_BASE_URL: http://localhost
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - default
+      - sandbox
+
+  web_worker:
+    build:
+      context: ./web_worker
+      dockerfile: Dockerfile
+      target: runtime
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://test:test@db:5432/stackbox_test
+      REDIS_STREAM_PREFIX: stackbox:test:events
+      REDIS_STREAM_GROUP: web_worker
+      REDIS_STREAM_CONSUMER: worker-1
+      JWT_SECRET: test-secret
+      JWT_ALGORITHM: HS256
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - default
+
+  code_runner:
+    build:
+      context: ./web_worker
+      dockerfile: Dockerfile
+      target: code_runner_runtime
+    environment:
+      CODE_RUNNER_HOST: 0.0.0.0
+      CODE_RUNNER_PORT: "3001"
+      CODE_RUNNER_AUTH_TOKEN: test-token
+    networks:
+      - sandbox
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+        NEXT_PUBLIC_WORKER_URL: ws://localhost:3000
+    depends_on:
+      - backend
+      - web_worker
+    networks:
+      - default
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+    networks:
+      - default
+
+  tester:
+    build:
+      context: ./tester
+      dockerfile: Dockerfile
+    # Joins `sandbox` too (test-only exception to the prod isolation
+    # rule) so it can smoke-test code_runner directly, same as backend.
+    depends_on:
+      - backend
+      - web_worker
+      - code_runner
+      - frontend
+      - nginx
+    networks:
+      - default
+      - sandbox
+
+networks:
+  default:
+  sandbox:
+    internal: true
