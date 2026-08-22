@@ -125,6 +125,34 @@ services:
     networks:
       - sandbox
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_WORKER_URL: ${NEXT_PUBLIC_WORKER_URL}
+    container_name: stackbox-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - web_worker
+    networks:
+      - default
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: stackbox-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+    networks:
+      - default
+
 networks:
   default:
   sandbox:
