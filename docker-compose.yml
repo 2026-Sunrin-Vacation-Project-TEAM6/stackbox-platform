@@ -134,6 +134,12 @@ services:
         NEXT_PUBLIC_WORKER_URL: ${NEXT_PUBLIC_WORKER_URL}
     container_name: stackbox-frontend
     restart: unless-stopped
+    environment:
+      # Server-side fetches (e.g. app/api/github/authorize-url) run inside this
+      # container, where NEXT_PUBLIC_API_URL (the browser-facing /api path
+      # through nginx) does not resolve — they need the backend's compose
+      # service name directly.
+      API_INTERNAL_URL: http://backend:8000
     depends_on:
       - backend
       - web_worker
