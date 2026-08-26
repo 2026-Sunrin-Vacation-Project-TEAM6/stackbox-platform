@@ -1,6 +1,6 @@
 # StackBox 진행 상황
 
-_최종 업데이트: 2026-08-25_
+_최종 업데이트: 2026-08-26_
 
 ## 1. 실시간 협업(WebSocket) 스택 검증
 - `web_worker` (Rust/Axum) 기반 realtime 서비스에서 두 명의 인증된 사용자가 동시 접속했을 때:
@@ -15,6 +15,7 @@ _최종 업데이트: 2026-08-25_
   - `backend` / `web_worker`에 `JWT_SECRET`, `JWT_ALGORITHM`을 동일하게 명시 (두 서비스가 같은 시크릿을 써야 토큰 검증이 통과됨).
 - `.gitignore`에 `.env` 추가해서 실제 시크릿 값이 git에 올라가지 않도록 처리. `git check-ignore -v .env`로 무시되는 것 확인.
 - `docker compose config`로 최종 치환 결과를 두 번 검증 (환경변수 세팅 직후, `TOKEN_ENCRYPTION_KEY` 추가 후).
+- `backend`가 CORS 허용 origin을 하드코딩 대신 `CORS_ALLOWED_ORIGINS` env로 읽도록 수정(`dd47780`), 루트 `docker-compose.yml`도 이 변수를 backend 서비스에 전달하도록 커밋 완료(`b52c162`).
 
 ### ✅ 해결됨 — 쉘 환경변수 충돌
 - 확인해보니 쉘에 `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_BASE_URL` 세 개 모두 export 되어 있었음 (Claude Code 프로바이더 프록시 설정으로 보임).
@@ -40,47 +41,41 @@ _최종 업데이트: 2026-08-25_
 - 단일 nginx 엔트리포인트(80/443)로 `frontend`(`/`), `backend`(`/api/`), `web_worker`(`/ws/`) 라우팅.
 - `nginx/templates/default.conf.template`, `nginx/init-letsencrypt.sh` 추가. `docker-compose.yml`에 `nginx`/`certbot` 서비스 추가, 3개 서비스의 host 포트 노출 제거.
 - `.env.example`에 `DOMAIN`/`CERTBOT_EMAIL`(placeholder), `CORS_ALLOWED_ORIGINS`, `NEXT_PUBLIC_API_URL=https://localhost/api`, `NEXT_PUBLIC_WORKER_URL=wss://localhost/ws` 추가.
-- **상태**: 루트 저장소에 커밋 준비 완료(staged). 실제 도메인 연결 전까지는 `localhost` 기준으로 동작.
-- 계획 문서: `~/.claude/plans/reactive-munching-eagle.md`
+- **상태**: 루트 저장소에 커밋 완료. 실제 도메인 연결 전까지는 `localhost` 기준으로 동작.
 
-## 7. Elixir/Phoenix 백엔드 재작성 + PPT 기능 Rust 이관 (진행 중)
-계획 문서: `~/.claude/plans/purring-swimming-map.md`
+## 7. Elixir/Phoenix 백엔드 재작성 + PPT 기능 Rust 이관
 
-### Part A — `backend` 서브모듈, 브랜치 `feat/elixir-rewrite` (커밋 안 됨, dirty)
-- Phase 1 (스켈레톤 + 핵심 리소스): 거의 완료.
-  - `mix phx.new` 스켈레톤, 12개 테이블 전체 Ecto 마이그레이션 작성 완료.
-  - Guardian 기반 JWT 인증(`auth_controller.ex`), `users`/`workspaces`/`workspace_members`/`stack_boxes`/`blocks` 컨트롤러+컨텍스트 구현됨 (47개 `.ex` 파일).
-  - RBAC(`Authz.require_role!/3`) 반영 여부는 다음 세션에서 코드 확인 필요.
-- Phase 2 (나머지 기능): **미착수**. `code_exec`, `github` OAuth, `ai`(summarize/fix-code/draft/chat/doc-to-ppt), `reactions`, docs/CRDT(snapshot/updates/presence) 컨트롤러가 아직 없음 (컨텍스트 디렉터리만 일부 존재: `reactions`, `docs`, `code_runs`).
-  - `ai`의 `doc-to-ppt`는 Part B(아래) 완료 후에만 연동 가능.
-- 아직 `mix compile` / `mix test` / `mix ecto.migrate` 검증 전.
+### Part A — `backend` 서브모듈, 브랜치 `migration/elixir-phoenix-backend`
+- Phase 1 (스켈레톤 + 핵심 리소스): **완료**. `mix phx.new` 스켈레톤, 12개 테이블 Ecto 마이그레이션, Guardian JWT 인증, RBAC, HTTP 컨트롤러 레이어, 테스트 커버리지, 보안 리뷰 저-심각도 findings 수정까지 완료. 원격에 push 완료 (`f451e94`).
+- Phase 2 (나머지 기능): **구현 완료, 별도 PR로 분리, 리뷰/머지 대기 중**.
+  - `feat/elixir-ai-github-codeexec` (PR [backend#5](https://github.com/2026-Sunrin-Vacation-Project-TEAM6/stackbox-backend/pull/5), base `migration/elixir-phoenix-backend`): GitHub OAuth, AI(summarize/fix-code/draft/chat/doc-to-ppt), code_exec 프록시 구현. `mix compile --warnings-as-errors` / `mix test`(32/32) 클린. OAuth callback 라우팅 버그(인증 파이프라인에 걸려 항상 401 나던 문제) 발견·수정함.
+  - `feat/elixir-docs-crdt` (PR [backend#6](https://github.com/2026-Sunrin-Vacation-Project-TEAM6/stackbox-backend/pull/6), base `migration/elixir-phoenix-backend`): Phoenix Channel 기반 실시간 문서 협업(presence + doc update). `mix test`(36/36) 클린, JWT 강제 스탬핑/RBAC/presence spoofing 방지 테스트 포함.
+  - 두 PR 모두 서로 독립적인 파일을 건드리므로 병합 순서 무관. `migration/elixir-phoenix-backend` → `main` PR은 이 둘이 머지된 뒤에 생성할 것.
+- 아직 `mix ecto.migrate` 실제 DB 대상 검증 전 (compile/test만 확인됨).
 
-### Part B — `web_worker` 서브모듈, 브랜치 `feat/ppt-rust-builder` (커밋 안 됨, dirty)
-- 새 바이너리 `src/bin/ppt_builder.rs` (398줄) 작성 완료: OpenAI로 슬라이드 개요 생성 → `ppt-rs`로 `.pptx` 빌드, `code_runner.rs`와 동일한 공유 시크릿 헤더 인증 패턴.
-- `Cargo.toml`/`Cargo.lock`에 `ppt-rs`, `reqwest` 의존성 추가됨. Dockerfile은 아직 미수정(네트워크 egress 필요한 별도 런타임 스테이지 필요).
-- 아직 `cargo build`/`cargo clippy`/`curl` 실제 호출 검증 전. backend `ai` 컨텍스트(Part A Phase 2)가 없어서 아직 연동 불가 — 독립 검증만 가능한 상태.
+### Part B — `web_worker` 서브모듈, 브랜치 `feat/ppt-rust-builder` (PR [web_worker#2](https://github.com/2026-Sunrin-Vacation-Project-TEAM6/web_worker/pull/2))
+- `src/bin/ppt_builder.rs`: OpenAI로 슬라이드 개요 생성 → `ppt-rs`로 `.pptx` 빌드, `code_runner.rs`와 동일한 공유 시크릿 헤더 인증 패턴. Dockerfile 런타임 스테이지(네트워크 egress 포함)까지 완료.
+- `cargo build` 클린. 아직 실제 OpenAI 호출 → `.pptx` end-to-end 검증 전 — Part A의 `doc-to-ppt` 엔드포인트(PR backend#5)가 머지되어야 실제 연동 테스트 가능.
 
-## 8. 병렬 워크트리 작업 (`.worktrees/`)
-같은 세션에서 4가지 독립 기능을 별도 워크트리로 동시 진행:
+## 8. 병렬 워크트리 작업 (`.worktrees/`) — 결과
 
-| 워크트리 | 브랜치 | 대상 서브모듈 | 상태 |
+| 워크트리 | 브랜치 | 대상 저장소 | 상태 |
 |---|---|---|---|
-| `backend-repo-docs` | `feat/repo-architecture-docs` | backend | ✅ 커밋 완료 (AI 저장소 구조 분석 엔드포인트), origin에는 미푸시 |
-| `frontend-diagram-exec` | `feat/diagram-code-exec-link` | frontend | ✅ 커밋 완료 (다이어그램-코드블록 연동, Canvas flow 실행 시 활성 노드 하이라이팅), origin에는 미푸시 |
-| `web_worker-caching` | `feat/redis-caching-optim` | web_worker | 🔶 진행 중, 커밋 안 됨 — `code_runner.rs`에 `cache_key`/`cached` 필드 및 캐싱 로직 + 단위 테스트 추가됨. `cargo test` 검증 및 커밋 필요 |
-| `web_worker-multilang` | `feat/code-runner-multi-lang` | web_worker | 🔶 진행 중, 커밋 안 됨 — `code_runner.rs`에 C/C++/Rust 컴파일 실행 지원(`Runtime::Compiled`) + 단위 테스트 추가됨. `cargo test` 검증 및 커밋 필요 |
-| `frontend-multilang` | `feat/code-runner-multi-lang` | frontend | ⬜ 미착수 — multilang 지원에 맞는 프론트엔드(언어 선택 UI 등) 작업 필요 |
-
-> `web_worker-caching`과 `web_worker-multilang`은 동일 파일(`code_runner.rs`)을 같은 베이스 커밋에서 각자 수정 중이므로, 나중에 한쪽을 먼저 병합하고 다른 쪽을 리베이스해야 함.
+| `backend-repo-docs` | `feat/repo-architecture-docs` | backend | ✅ PR [backend#4](https://github.com/2026-Sunrin-Vacation-Project-TEAM6/stackbox-backend/pull/4) (AI 저장소 구조 분석 엔드포인트) |
+| `frontend-diagram-exec` | `feat/diagram-code-exec-link` | frontend | ✅ PR [frontend#3](https://github.com/2026-Sunrin-Vacation-Project-TEAM6/stackbox-frontend/pull/3) (다이어그램-코드블록 연동, flow 순서 실행, 에러 상태 표시) |
+| `frontend-multilang` | `feat/code-runner-multi-lang` | frontend | ✅ PR [frontend#4](https://github.com/2026-Sunrin-Vacation-Project-TEAM6/stackbox-frontend/pull/4) (C/C++/Rust 언어 선택 UI) |
+| `web_worker-merge-codeexec` | `feat/code-runner-merged` | web_worker | ✅ PR [web_worker#3](https://github.com/2026-Sunrin-Vacation-Project-TEAM6/web_worker/pull/3) — Redis 캐싱(`feat/redis-caching-optim`) + 멀티랭귀지(`feat/code-runner-multi-lang`)를 하나로 병합·검증 완료(build/test 25/25/clippy 클린). 이 PR이 두 원본 브랜치를 대체하므로 그쪽은 별도 PR 없음. |
+| `web_worker-ppt-builder` | `feat/ppt-rust-builder` | web_worker | ✅ PR [web_worker#2](https://github.com/2026-Sunrin-Vacation-Project-TEAM6/web_worker/pull/2) (위 7번 Part B 참고) |
+| `backend-elixir-phase1` | `migration/elixir-phoenix-backend` | backend | ✅ 원격 push 완료 (PR은 Phase 2 두 브랜치 머지 후 main 대상으로 생성 예정) |
+| `backend-elixir-ai-github` | `feat/elixir-ai-github-codeexec` | backend | ✅ PR [backend#5](https://github.com/2026-Sunrin-Vacation-Project-TEAM6/stackbox-backend/pull/5) (위 7번 Part A 참고) |
+| `backend-elixir-docs-crdt` | `feat/elixir-docs-crdt` | backend | ✅ PR [backend#6](https://github.com/2026-Sunrin-Vacation-Project-TEAM6/stackbox-backend/pull/6) (위 7번 Part A 참고) |
+| `backend-code-exec-caching` | `feat/code-exec-redis-cache` | backend | ✅ 이미 `origin/main`에 반영됨 (별도 PR 불필요) |
 
 ## 다음에 할 일
+- [ ] 위 7개 PR 리뷰 + 머지 (권장 순서: backend#4 → backend#5, backend#6(순서 무관) → frontend#3, frontend#4(순서 무관) → web_worker#2, web_worker#3(순서 무관))
+- [ ] `migration/elixir-phoenix-backend`에 Phase 2 PR 2개 머지 후, 그 브랜치를 `main` 대상 PR로 올리기
 - [ ] `docker compose up`으로 전체 스택 실제 기동 테스트
+- [ ] Elixir backend: `mix ecto.migrate` 실제 DB 대상 검증
+- [ ] Rust `ppt_builder`: 실제 OpenAI 호출로 `.pptx` 생성 검증 (backend `doc-to-ppt`와 연동 후)
 - [ ] OpenAI base URL 커스텀 엔드포인트로 실제 호출 테스트 (선택)
-- [ ] nginx 리버스 프록시: 루트 저장소 커밋 + `docker compose config` / `curl -vk https://localhost/api/health` 검증
-- [ ] Elixir backend: `mix compile --warnings-as-errors`, `mix ecto.migrate`, `mix test` 실행 후 Phase 1 커밋
-- [ ] Elixir backend Phase 2: `code_exec`, `github`, `ai`(doc-to-ppt 포함), `reactions`, docs/CRDT 컨트롤러 구현
-- [ ] Rust `ppt_builder`: `cargo build`/`cargo clippy` + 실제 OpenAI 호출로 `.pptx` 검증, Dockerfile 런타임 스테이지 추가
-- [ ] `web_worker-caching`, `web_worker-multilang`: 각각 `cargo test` 확인 후 커밋 → 하나 먼저 병합 후 다른 쪽 리베이스
-- [ ] `backend-repo-docs`, `frontend-diagram-exec`: 서브모듈 origin에 push + PR 생성
-- [ ] `frontend-multilang`: multilang 코드 실행에 맞는 언어 선택 UI 작업 시작
-- [ ] 병합 순서 정리: nginx(루트) → backend Phase 1 → web_worker(caching/multilang 순차 병합) → ppt_builder ↔ backend ai 연동 → frontend 워크들
+- [ ] Elixir backend가 main으로 머지되면, 기존 FastAPI `backend` 서비스를 대체할지 병행 운영할지 결정 필요
