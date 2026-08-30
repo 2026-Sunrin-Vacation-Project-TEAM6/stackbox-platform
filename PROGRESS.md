@@ -76,10 +76,14 @@ _최종 업데이트: 2026-08-28_
 | `backend-code-exec-caching` | `feat/code-exec-redis-cache` | backend | ✅ 이미 `origin/main`에 반영 (별도 PR 불필요) |
 
 ## 다음에 할 일
-- [ ] 위 7개 PR 리뷰 + 머지 (권장 순서: backend#4 → backend#5, backend#6(순서 무관) → frontend#3, frontend#4(순서 무관) → web_worker#2, web_worker#3(순서 무관))
+- [x] 위 7개 PR 리뷰 + 머지 완료 (2026-08-30): backend#4/#5/#6, frontend#3/#4, web_worker#2/#3
+- [x] fix PR 생성·머지 (2026-08-30): frontend#5(이벤트 베이스64url), backend#7(rate-limit/github), web_worker#4(WS 프레임 제한)
+- [x] Elixir/Phoenix로 FastAPI **완전 대체** 결정 → backend#9 머지 (2026-08-30) — FastAPI(`app/`, `requirements.txt`) 삭제, Elixir 멀티스테이지 Dockerfile + `Stackbox.Release.migrate` 마이그레이션 부트
+- [x] Guardian HS256 맞춤 (backend#10, 2026-08-30): web_worker 검증기와 토큰 알고리즘 일치 (`allowed_algos: ["HS256"]`, `verify_issuer: false`)
+- [x] 루트 compose/.env: DATABASE_URL → `postgres://`(Ecto scheme), `SECRET_KEY_BASE`/`PHX_HOST`/`POOL_SIZE` 추가 (2026-08-30)
 - [x] 서브모듈 3개(`backend`, `frontend`, `web_worker`) 초기화 완료 (2026-08-28)
 - [x] 실시간 WS 라우팅 버그(.env.example) 수정 완료 (2026-08-28)
-- [ ] `docker compose up`으로 전체 스택 실제 기동 테스트 ⚠️ 이 환경은 `podman compose` 미지원이라 호스트에서 실행 필요
-- [ ] Elixir backend: `mix ecto.migrate` 실제 DB 대상 검증
+- [x] Elixir 이미지 빌드 + 부팅 검증 (2026-08-30): `mix compile --warnings-as-errors` + `mix release` 통과, 런타임 이미지가 설정 로드 후 Postgres 연결 시도까지 확인; Guardian HS256 설정 로딩 검증
+- [ ] `docker compose up`으로 전체 스택 실제 기동 테스트 ⚠️ 이 환경은 `podman compose` 미지원이라 호스트에서 실행 필요 (DB/Redis 포함 Elixir 부팅 확인)
+- [ ] `mix ecto.migrate` 실제 DB 대상 최초 마이그레이션 적용 검증 (`Stackbox.Release.migrate` 부트 경로)
 - [ ] Rust `ppt_builder`: 실제 OpenAI 호출로 `.pptx` 생성 검증 (backend `doc-to-ppt`와 연동 후)
-- [ ] Elixir backend가 main으로 머지되면, 기존 FastAPI `backend` 서비스를 대체할지 병행 운영할지 결정 필요
