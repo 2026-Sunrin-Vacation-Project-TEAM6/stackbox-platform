@@ -402,15 +402,16 @@ CREATE TRIGGER trg_doc_blocks_updated_at
 
 -- 코드 블록 실행 기록 (code_runner 샌드박스 결과)
 CREATE TABLE code_runs (
-    id          BIGSERIAL PRIMARY KEY,
-    block_id    BIGINT NOT NULL REFERENCES doc_blocks(id) ON DELETE CASCADE,
-    language    VARCHAR(32) NOT NULL,
-    stdout      TEXT NOT NULL DEFAULT '',
-    stderr      TEXT NOT NULL DEFAULT '',
-    exit_code   INT NOT NULL DEFAULT 0,
-    duration_ms INT NOT NULL DEFAULT 0,
-    executed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id             BIGSERIAL PRIMARY KEY,
+    block_id       BIGINT NOT NULL REFERENCES doc_blocks(id) ON DELETE CASCADE,
+    language       VARCHAR(32) NOT NULL,
+    stdout         TEXT NOT NULL DEFAULT '',
+    stderr         TEXT NOT NULL DEFAULT '',
+    compile_error  TEXT,
+    exit_code      INT NOT NULL DEFAULT 0,
+    duration_ms    INT NOT NULL DEFAULT 0,
+    executed_by    BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_code_runs_block ON code_runs (block_id, created_at);
