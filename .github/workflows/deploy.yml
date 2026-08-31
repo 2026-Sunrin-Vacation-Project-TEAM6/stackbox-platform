@@ -1,0 +1,131 @@
+name: CD - Build, push, deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - docker-compose.yml
+      - .github/workflows/deploy.yml
+      - backend/**
+      - frontend/**
+      - web_worker/**
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BASE: ghcr.io/${{ github.repository_owner }}
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Build every deployable image and push it to GHCR. The `latest` tag
+  # (plus a `sha-<7>` immutable tag) is what the server pulls afterwards.
+  # ---------------------------------------------------------------------
+  build-and-push:
+    name: Build & push images to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      sha: ${{ steps.sha.outputs.short }}
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: sha
+        run: echo "short=$(echo ${{ github.sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Build & push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: |
+            ${{ env.IMAGE_BASE }}/stackbox-backend:latest
+            ${{ env.IMAGE_BASE }}/stackbox-backend:sha-${{ steps.sha.outputs.short }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: true
+          # Browser-facing URLs are baked into the JS bundle at build time.
+          # Configure repo-level variables (Settings > Secrets and variables
+          # > Actions > Variables): NEXT_PUBLIC_API_URL, NEXT_PUBLIC_WORKER_URL.
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || format('https://{0}/api', vars.DEPLOY_DOMAIN || 'localhost') }}
+            NEXT_PUBLIC_WORKER_URL=${{ vars.NEXT_PUBLIC_WORKER_URL || format('wss://{0}/worker', vars.DEPLOY_DOMAIN || 'localhost') }}
+          tags: |
+            ${{ env.IMAGE_BASE }}/stackbox-frontend:latest
+            ${{ env.IMAGE_BASE }}/stackbox-frontend:sha-${{ steps.sha.outputs.short }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push web_worker
+        uses: docker/build-push-action@v6
+        with:
+          context: web_worker
+          target: runtime
+          push: true
+          tags: |
+            ${{ env.IMAGE_BASE }}/stackbox-web-worker:latest
+            ${{ env.IMAGE_BASE }}/stackbox-web-worker:sha-${{ steps.sha.outputs.short }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build & push code_runner
+        uses: docker/build-push-action@v6
+        with:
+          context: web_worker
+          target: code_runner_runtime
+          push: true
+          tags: |
+            ${{ env.IMAGE_BASE }}/stackbox-code-runner:latest
+            ${{ env.IMAGE_BASE }}/stackbox-code-runner:sha-${{ steps.sha.outputs.short }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------------
+  # Deploy on the server: pull the freshly pushed images and recreate the
+  # stack. The server must be provisioned in advance (see .github/README.md):
+  #   - repo cloned at $DEPLOY_PATH with .env filled in
+  #   - deploy key / SSH credentials registered in Actions secrets
+  # ---------------------------------------------------------------------
+  deploy:
+    name: Deploy via SSH
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script: |
+            set -eu
+            cd "${{ secrets.DEPLOY_PATH }}"
+            git pull --ff-only
+            git submodule update --init --recursive
+            docker compose pull
+            docker compose up -d
+            docker image prune -f

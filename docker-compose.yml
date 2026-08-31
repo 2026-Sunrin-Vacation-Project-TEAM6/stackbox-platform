@@ -41,6 +41,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    # Image is pushed to GHCR by .github/workflows/deploy.yml. Local dev
+    # keeps building: `docker compose up --build`. The deploy server runs
+    # `docker compose pull` to fetch the latest published image.
+    image: ghcr.io/2026-sunrin-vacation-project-team6/stackbox-backend:latest
     container_name: stackbox-backend
     restart: unless-stopped
     ports:
@@ -81,6 +85,7 @@ services:
       context: ./web_worker
       dockerfile: Dockerfile
       target: runtime
+    image: ghcr.io/2026-sunrin-vacation-project-team6/stackbox-web-worker:latest
     container_name: stackbox-web-worker
     restart: unless-stopped
     expose:
@@ -108,6 +113,7 @@ services:
       context: ./web_worker
       dockerfile: Dockerfile
       target: code_runner_runtime
+    image: ghcr.io/2026-sunrin-vacation-project-team6/stackbox-code-runner:latest
     container_name: stackbox-code-runner
     restart: unless-stopped
     # No `ports:` mapping on purpose: code_runner executes arbitrary user
@@ -136,6 +142,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_WORKER_URL: ${NEXT_PUBLIC_WORKER_URL}
+    image: ghcr.io/2026-sunrin-vacation-project-team6/stackbox-frontend:latest
     container_name: stackbox-frontend
     restart: unless-stopped
     environment:
