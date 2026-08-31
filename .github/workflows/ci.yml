@@ -1,0 +1,170 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Full-stack integration smoke test. Boots every service from the
+  # docker-compose.test.yml stack (self-contained test values, no .env),
+  # then runs the `tester` service which polls each health endpoint and
+  # exits 0/1. The whole stack is torn down afterwards.
+  # ---------------------------------------------------------------------
+  integration-test:
+    name: Integration smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Boot stack and run smoke tests
+        run: |
+          docker compose -f docker-compose.test.yml up --build \
+            --abort-on-container-exit --exit-code-from tester
+
+      - name: Tear down stack
+        if: always()
+        run: |
+          docker compose -f docker-compose.test.yml down -v
+
+  # ---------------------------------------------------------------------
+  # Backend (Elixir / Phoenix) unit tests against a real Postgres+Redis.
+  # ---------------------------------------------------------------------
+  backend-test:
+    name: Backend (Elixir) test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: stackbox
+          POSTGRES_PASSWORD: stackbox
+          POSTGRES_DB: stackbox_db_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U stackbox -d stackbox_db_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+    env:
+      MIX_ENV: test
+      DATABASE_URL: ecto://stackbox:stackbox@localhost:5432/stackbox_db_test
+      REDIS_URL: redis://localhost:6379
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Elixir / OTP
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.16.3"
+          otp-version: "26.2.5"
+
+      - name: Install Hex and deps
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+
+      - name: Compile with warnings-as-errors
+        run: mix compile --warnings-as-errors
+
+      - name: Run tests (creates + migrates test DB first)
+        run: mix test
+
+  # ---------------------------------------------------------------------
+  # Frontend (Next.js) — install, lint, typecheck, and production build.
+  # ---------------------------------------------------------------------
+  frontend-test:
+    name: Frontend (Next.js) lint + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Production build
+        env:
+          # Dummy values are fine here — CI only verifies that the app
+          # compiles. Real URLs are baked in at deploy time.
+          NEXT_PUBLIC_API_URL: http://localhost/api
+          NEXT_PUBLIC_WORKER_URL: ws://localhost/worker
+        run: npm run build
+
+  # ---------------------------------------------------------------------
+  # Web worker (Rust) — compile checks + unit/integration tests
+  # (wiremock is used for HTTP tests, so no external services needed).
+  # ---------------------------------------------------------------------
+  web-worker-test:
+    name: Web worker (Rust) test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web_worker
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: web_worker
+
+      # `cargo test` already compiles the lib + every bin target
+      # (web_worker, code_runner, ppt_builder), so no separate check step.
+      # Note: the code_runner C/C++ tests spawn a real compiler under a
+      # tight RLIMIT_NPROC; on a shared dev machine they may intermittently
+      # fail (see the COMPILE_NPROC_LIMIT comment in code_runner.rs), but on
+      # the job-dedicated CI VM the ambient process count stays low enough.
+      - name: Run tests
+        run: cargo test
