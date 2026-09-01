@@ -6,6 +6,8 @@ on:
     paths:
       - docker-compose.yml
       - .github/workflows/deploy.yml
+      - nginx/**
+      - db/**
       - backend/**
       - frontend/**
       - web_worker/**
@@ -108,6 +110,8 @@ jobs:
   # stack. The server must be provisioned in advance (see .github/README.md):
   #   - repo cloned at $DEPLOY_PATH with .env filled in
   #   - deploy key / SSH credentials registered in Actions secrets
+  #   - read-only GHCR PAT (DEPLOY_GHCR_USERNAME/TOKEN) so the server can
+  #     pull the private-by-default GHCR packages
   # ---------------------------------------------------------------------
   deploy:
     name: Deploy via SSH
@@ -126,6 +130,22 @@ jobs:
             cd "${{ secrets.DEPLOY_PATH }}"
             git pull --ff-only
             git submodule update --init --recursive
+            # GHCR packages default to private: authenticate with a read-only
+            # PAT (DEPLOY_GHCR_USERNAME/TOKEN, see .github/README.md).
+            echo "${{ secrets.DEPLOY_GHCR_TOKEN }}" | docker login ghcr.io \
+              -u "${{ secrets.DEPLOY_GHCR_USERNAME }}" --password-stdin
             docker compose pull
-            docker compose up -d
+            # --wait blocks until every healthchecked service is healthy
+            # (requires docker compose v2.20+ on the server).
+            docker compose up -d --wait
+            # Smoke check through nginx (requires curl on the server).
+            i=0
+            until curl -fsS http://localhost/api/health >/dev/null 2>&1; do
+              i=$((i + 1))
+              if [ "$i" -ge 30 ]; then
+                echo "FAIL: backend never became healthy at http://localhost/api/health"
+                exit 1
+              fi
+              sleep 2
+            done
             docker image prune -f

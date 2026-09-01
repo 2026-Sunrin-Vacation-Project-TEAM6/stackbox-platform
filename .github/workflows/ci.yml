@@ -92,7 +92,12 @@ jobs:
       - name: Compile with warnings-as-errors
         run: mix compile --warnings-as-errors
 
-      - name: Run tests (creates + migrates test DB first)
+      - name: Create and migrate test DB
+        run: |
+          mix ecto.create
+          mix ecto.migrate
+
+      - name: Run tests
         run: mix test
 
   # ---------------------------------------------------------------------

@@ -46,7 +46,11 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgresql+psycopg2://test:test@db:5432/stackbox_test
+      # Backend image runs the PROD release: SECRET_KEY_BASE is required
+      # (runtime.exs raises without it) and the URL must be Ecto-compatible
+      # (postgres://, not SQLAlchemy's postgresql+psycopg2://).
+      SECRET_KEY_BASE: test-secret-key
+      DATABASE_URL: postgres://test:test@db:5432/stackbox_test
       REDIS_URL: redis://redis:6379
       REDIS_STREAM_PREFIX: stackbox:test:events
       CODE_RUNNER_URL: http://code_runner:3001
