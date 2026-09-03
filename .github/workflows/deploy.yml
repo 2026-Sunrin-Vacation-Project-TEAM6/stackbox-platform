@@ -32,6 +32,22 @@ jobs:
     permissions:
       contents: read
       packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: backend, context: backend, image: stackbox-backend}
+          # Browser-facing URLs are baked into the JS bundle at build time.
+          # Configure repo-level variables (Settings > Secrets and variables
+          # > Actions > Variables): NEXT_PUBLIC_API_URL, NEXT_PUBLIC_WORKER_URL.
+          - name: frontend
+            context: frontend
+            image: stackbox-frontend
+            build-args: |
+              NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || format('https://{0}/api', vars.DEPLOY_DOMAIN || 'localhost') }}
+              NEXT_PUBLIC_WORKER_URL=${{ vars.NEXT_PUBLIC_WORKER_URL || format('wss://{0}/worker', vars.DEPLOY_DOMAIN || 'localhost') }}
+          - {name: web_worker, context: web_worker, image: stackbox-web-worker, target: runtime}
+          - {name: code_runner, context: web_worker, image: stackbox-code-runner, target: code_runner_runtime}
     outputs:
       sha: ${{ steps.sha.outputs.short }}
     steps:
@@ -53,55 +69,16 @@ jobs:
       - id: sha
         run: echo "short=$(echo ${{ github.sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
 
-      - name: Build & push backend
+      - name: Build & push ${{ matrix.name }}
         uses: docker/build-push-action@v6
         with:
-          context: backend
+          context: ${{ matrix.context }}
+          target: ${{ matrix.target }}
           push: true
+          build-args: ${{ matrix.build-args }}
           tags: |
-            ${{ env.IMAGE_BASE }}/stackbox-backend:latest
-            ${{ env.IMAGE_BASE }}/stackbox-backend:sha-${{ steps.sha.outputs.short }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build & push frontend
-        uses: docker/build-push-action@v6
-        with:
-          context: frontend
-          push: true
-          # Browser-facing URLs are baked into the JS bundle at build time.
-          # Configure repo-level variables (Settings > Secrets and variables
-          # > Actions > Variables): NEXT_PUBLIC_API_URL, NEXT_PUBLIC_WORKER_URL.
-          build-args: |
-            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL || format('https://{0}/api', vars.DEPLOY_DOMAIN || 'localhost') }}
-            NEXT_PUBLIC_WORKER_URL=${{ vars.NEXT_PUBLIC_WORKER_URL || format('wss://{0}/worker', vars.DEPLOY_DOMAIN || 'localhost') }}
-          tags: |
-            ${{ env.IMAGE_BASE }}/stackbox-frontend:latest
-            ${{ env.IMAGE_BASE }}/stackbox-frontend:sha-${{ steps.sha.outputs.short }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build & push web_worker
-        uses: docker/build-push-action@v6
-        with:
-          context: web_worker
-          target: runtime
-          push: true
-          tags: |
-            ${{ env.IMAGE_BASE }}/stackbox-web-worker:latest
-            ${{ env.IMAGE_BASE }}/stackbox-web-worker:sha-${{ steps.sha.outputs.short }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build & push code_runner
-        uses: docker/build-push-action@v6
-        with:
-          context: web_worker
-          target: code_runner_runtime
-          push: true
-          tags: |
-            ${{ env.IMAGE_BASE }}/stackbox-code-runner:latest
-            ${{ env.IMAGE_BASE }}/stackbox-code-runner:sha-${{ steps.sha.outputs.short }}
+            ${{ env.IMAGE_BASE }}/${{ matrix.image }}:latest
+            ${{ env.IMAGE_BASE }}/${{ matrix.image }}:sha-${{ steps.sha.outputs.short }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

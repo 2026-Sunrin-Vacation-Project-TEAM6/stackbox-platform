@@ -83,6 +83,18 @@ jobs:
           elixir-version: "1.16.3"
           otp-version: "26.2.5"
 
+      - name: Cache Hex + deps + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.hex
+            ~/.mix
+            backend/deps
+            backend/_build
+          key: mix-${{ runner.os }}-1.16.3-26.2.5-${{ hashFiles('backend/mix.lock') }}
+          restore-keys: |
+            mix-${{ runner.os }}-1.16.3-26.2.5-
+
       - name: Install Hex and deps
         run: |
           mix local.hex --force
@@ -92,12 +104,9 @@ jobs:
       - name: Compile with warnings-as-errors
         run: mix compile --warnings-as-errors
 
-      - name: Create and migrate test DB
-        run: |
-          mix ecto.create
-          mix ecto.migrate
-
-      - name: Run tests
+      # `mix test` is aliased to `["ecto.create --quiet", "ecto.migrate --quiet", "test"]`
+      # (see mix.exs), so it creates + migrates the test DB on its own.
+      - name: Run tests (creates + migrates test DB)
         run: mix test
 
   # ---------------------------------------------------------------------
