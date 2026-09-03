@@ -120,20 +120,31 @@ jobs:
     steps:
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1
+        # Map secrets to env so $DEPLOY_GHCR_* resolve inside the remote
+        # script. GitHub masks the values; appleboy interpolates $NAME from
+        # the envs: list on the remote side (not inline literal secrets).
+        env:
+          DEPLOY_GHCR_TOKEN: ${{ secrets.DEPLOY_GHCR_TOKEN }}
+          DEPLOY_GHCR_USERNAME: ${{ secrets.DEPLOY_GHCR_USERNAME }}
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
+          envs: DEPLOY_GHCR_TOKEN,DEPLOY_GHCR_USERNAME
           script: |
             set -eu
             cd "${{ secrets.DEPLOY_PATH }}"
             git pull --ff-only
             git submodule update --init --recursive
+            if [ -z "$DEPLOY_GHCR_TOKEN" ] || [ -z "$DEPLOY_GHCR_USERNAME" ]; then
+              echo "DEPLOY_GHCR_USERNAME/DEPLOY_GHCR_TOKEN secrets are required" >&2
+              exit 1
+            fi
             # GHCR packages default to private: authenticate with a read-only
             # PAT (DEPLOY_GHCR_USERNAME/TOKEN, see .github/README.md).
-            echo "${{ secrets.DEPLOY_GHCR_TOKEN }}" | docker login ghcr.io \
-              -u "${{ secrets.DEPLOY_GHCR_USERNAME }}" --password-stdin
+            echo "$DEPLOY_GHCR_TOKEN" | docker login ghcr.io \
+              -u "$DEPLOY_GHCR_USERNAME" --password-stdin
             docker compose pull
             # --wait blocks until every healthchecked service is healthy
             # (requires docker compose v2.20+ on the server).
@@ -148,4 +159,7 @@ jobs:
               fi
               sleep 2
             done
+            # Prune dangling layers left by the previous image tag. Dangling
+            # images are unreferenced by any container, so this never affects
+            # running workloads (includes any other project on this server).
             docker image prune -f
