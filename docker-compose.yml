@@ -35,6 +35,9 @@ services:
       retries: 5
     networks:
       - default
+      # code_runner runs on the isolated internal `sandbox` network but
+      # still needs this redis for its code cache (RedisCodeCache).
+      - sandbox
 
   backend:
     build:
@@ -131,6 +134,9 @@ services:
       CODE_RUNNER_HOST: ${CODE_RUNNER_HOST}
       CODE_RUNNER_PORT: ${CODE_RUNNER_PORT}
       CODE_RUNNER_AUTH_TOKEN: ${CODE_RUNNER_AUTH_TOKEN}
+      # code_runner keeps a RedisCodeCache; the redis container is
+      # reachable from the sandbox network (see redis service).
+      REDIS_URL: redis://redis:6379
     networks:
       - sandbox
 
